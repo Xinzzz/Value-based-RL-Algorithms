@@ -14,6 +14,10 @@ from common.experience_replay import ReplayBuffer
 from algos.DQN import DQNAgent
 
 class DoubleDQNAgent(DQNAgent):
+    def __init__(self, env, config):
+        # DQNAgent.__init__(self, env, config) # classical
+        super(DoubleDQNAgent, self).__init__(env, config)
+
     def _compute_dqn_loss(self, samples: Dict[str, np.ndarray]) -> torch.Tensor:
         """Return dqn loss."""
         device = self.device  # for shortening the following lines
@@ -31,7 +35,6 @@ class DoubleDQNAgent(DQNAgent):
         ).detach()
         mask = 1 - done
         target = (reward + self.gamma * next_q_value * mask).to(self.device)
-
         # calculate dqn loss
         loss = F.smooth_l1_loss(curr_q_value, target)
 

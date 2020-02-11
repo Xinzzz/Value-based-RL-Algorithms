@@ -11,17 +11,17 @@ def plot(data):
     for i, d in enumerate(data):
         plt.subplot(131)
         plt.title('frame %s. score: %s' % (d[0], np.mean(d[1][-10:])))
-        plt.plot(d[1], label=d[4])
+        plt.plot(d[1], label=d[4], color=d[5])
         plt.legend(loc='best')
 
         plt.subplot(132)
         plt.title('loss')
-        plt.plot(d[2], label=d[4])
+        plt.plot(d[2], label=d[4], color=d[5])
         plt.legend(loc='best')
 
         plt.subplot(133)
         plt.title('epsilons')
-        plt.plot(d[3], label=d[4])
+        plt.plot(d[3], label=d[4], color=d[5])
         plt.legend(loc='best')
     
     plt.show()

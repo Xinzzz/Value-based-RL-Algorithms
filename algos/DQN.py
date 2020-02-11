@@ -12,7 +12,9 @@ import torch.optim as optim
 
 from common.experience_replay import ReplayBuffer
 from common.network import LinearNetwork
+from common.arguments import get_args
 
+config = get_args()
 
 class DQNAgent(object):
     """DQN Agent interacting with environment.
@@ -34,19 +36,8 @@ class DQNAgent(object):
                            state, action, reward, next_state, done
     """
 
-    def __init__(
-        self, 
-        env: gym.Env,
-        memory_size: int,
-        batch_size: int,
-        target_update: int,
-        epsilon_decay: float,
-        max_epsilon: float = 1.0,
-        min_epsilon: float = 0.1,
-        gamma: float = 0.99,
-    ):
-        """Initialization.
-        
+    def __init__(self, env: gym.Env, config):
+        """Initialization.     
         Args:
             env (gym.Env): openAI Gym environment
             memory_size (int): length of memory
@@ -58,19 +49,17 @@ class DQNAgent(object):
             min_epsilon (float): min value of epsilon
             gamma (float): discount factor
         """
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.n
-        
+        self.obs_dim = env.observation_space.shape[0]
+        self.action_dim = env.action_space.n  
         self.env = env
-        self.memory = ReplayBuffer(obs_dim, memory_size, batch_size)
-        self.batch_size = batch_size
-        self.epsilon = max_epsilon
-        self.epsilon_decay = epsilon_decay
-        self.max_epsilon = max_epsilon
-        self.min_epsilon = min_epsilon
-        self.target_update = target_update
-        self.gamma = gamma
-        print("i have dqn")
+        self.memory = ReplayBuffer(self.obs_dim, config.memory_size, config.batch_size)
+        self.batch_size = config.batch_size
+        self.epsilon = config.max_epsilon
+        self.epsilon_decay = config.epsilon_decay
+        self.max_epsilon = config.max_epsilon
+        self.min_epsilon = config.min_epsilon
+        self.target_update = config.target_update
+        self.gamma = config.gamma
         # device: cpu / gpu
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
@@ -78,8 +67,8 @@ class DQNAgent(object):
         print(self.device)
 
         # networks: dqn, dqn_target
-        self.dqn = LinearNetwork(obs_dim, action_dim).to(self.device)
-        self.dqn_target = LinearNetwork(obs_dim, action_dim).to(self.device)
+        self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+        self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval()
         
@@ -156,5 +145,3 @@ class DQNAgent(object):
     def _target_hard_update(self):
         """Hard update: target <- local."""
         self.dqn_target.load_state_dict(self.dqn.state_dict())
-                
-

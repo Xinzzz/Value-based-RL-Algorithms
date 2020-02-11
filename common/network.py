@@ -7,7 +7,7 @@ import torch.optim as optim
 class LinearNetwork(nn.Module):
     def __init__(self, in_dim: int, out_dim: int):
         """Initialization."""
-        super(Network, self).__init__()
+        super(LinearNetwork, self).__init__()
 
         self.layers = nn.Sequential(
             nn.Linear(in_dim, 128), 

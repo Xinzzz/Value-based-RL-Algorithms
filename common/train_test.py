@@ -1,5 +1,7 @@
 import os
 from typing import Dict, List, Tuple
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)+'/'+'..'))
 
 import gym
 import numpy as np
@@ -8,10 +10,10 @@ import torch
 
 from tqdm import tqdm
 
-def train(Agent, env, num_frames: int, plotting_interval: int = 200):
+def train(Agent, env, num_frames: int, plotting_interval: int = 200, PER: bool = False):
     """Train the agent."""
     Agent.is_test = False
-    
+    print(Agent)
     state = Agent.env.reset()
     update_cnt = 0
     epsilons = []
@@ -25,6 +27,11 @@ def train(Agent, env, num_frames: int, plotting_interval: int = 200):
 
         state = next_state
         score += reward
+
+        # PER: increase beta
+        if PER:
+            fraction = min(frame_idx / num_frames, 1.0)
+            Agent.beta = Agent.beta + fraction * (1.0 - Agent.beta)
 
         # if episode ends
         if done:
@@ -71,4 +78,3 @@ def test(Agent) -> None:
     
     print("score: ", score)
     Agent.env.close()
-
