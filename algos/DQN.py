@@ -12,6 +12,7 @@ import torch.optim as optim
 
 from common.experience_replay import ReplayBuffer
 from common.network import LinearNetwork
+from common.network import LinearDuelingNetwork
 from common.arguments import get_args
 
 config = get_args()
@@ -35,8 +36,7 @@ class DQNAgent(object):
         transition (list): transition information including 
                            state, action, reward, next_state, done
     """
-
-    def __init__(self, env: gym.Env, config):
+    def __init__(self, env: gym.Env, config, dueling: bool = False):
         """Initialization.     
         Args:
             env (gym.Env): openAI Gym environment
@@ -67,8 +67,13 @@ class DQNAgent(object):
         print(self.device)
 
         # networks: dqn, dqn_target
-        self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-        self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+        if not dueling:
+            self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+            self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+        else:
+            self.dqn = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
+            self.dqn_target = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
+
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval()
         

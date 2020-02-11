@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from common.plot import plot
 from common.train_test import train, test
 from common.arguments import get_args
+from common.data import save_model
+from common.data import load_model
 from algos.DQN import DQNAgent
 from algos.double_DQN import DoubleDQNAgent
 from algos.DQN_PER import DQNAgentPER
@@ -34,32 +36,39 @@ seed_torch(seed)
 env.seed(seed)
 
 # ------------ train ------------ 
-# dqn_agent = DQNAgent(env, config)
-# frame_dqn, score_dqn, loss_dqn, eps_dqn = train(dqn_agent, env, config.num_frames)
+data_to_store = {}
+training = False
+if training:
+    dqn_agent = DQNAgent(env, config)
+    frame_dqn, score_dqn, loss_dqn, eps_dqn = train(dqn_agent, env, config.num_frames)
+    data_to_store['dqn'] = (frame_dqn, score_dqn, loss_dqn, eps_dqn)
 
-# double_dqn_agent = DoubleDQNAgent(env, config)
-# frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn = train(double_dqn_agent, env, config.num_frames)
+    double_dqn_agent = DoubleDQNAgent(env, config)
+    frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn = train(double_dqn_agent, env, config.num_frames)
+    data_to_store['double dqn'] = (frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn)
 
-# dqn_per_agent = DQNAgentPER(env, config)
-# frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per = train(dqn_per_agent, env, config.num_frames, PER = True)
-# # ------------ save model ------------ 
-# with open('logs/dqn.pickle', 'wb') as f:
-#     pickle.dump((frame_dqn, score_dqn, loss_dqn, eps_dqn), f, protocol=pickle.HIGHEST_PROTOCOL)
-# with open('logs/double_dqn.pickle', 'wb') as f:
-#     pickle.dump((frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn), f, protocol=pickle.HIGHEST_PROTOCOL)
-# with open('logs/dqn_per.pickle', 'wb') as f:
-#     pickle.dump((frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per), f, protocol=pickle.HIGHEST_PROTOCOL)
+    dqn_per_agent = DQNAgentPER(env, config)
+    frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per = train(dqn_per_agent, env, config.num_frames, PER = True)
+    data_to_store['dqn per'] = (frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per)
+
+    dqn_dueling_agent = DQNAgent(env, config, dueling=True)
+    frame_dqn_dueling, score_dqn_dueling, loss_dqn_dueling, eps_dqn_dueling = train(dqn_dueling_agent, env, config.num_frames)
+    data_to_store['dqn dueling'] = (frame_dqn_dueling, score_dqn_dueling, loss_dqn_dueling, eps_dqn_dueling)
+
+# ------------ save model ------------ 
+saving = False
+if saving:
+    save_model('dqn', data_to_store['dqn'])
+    save_model('double dqn', data_to_store['double dqn'])
+    save_model('dqn per', data_to_store['dqn per'])
+    save_model('dqn dueling', data_to_store['dqn dueling'])
 
 # ------------ load model ------------ 
-with open('logs/dqn.pickle', 'rb') as f:
-    frame_dqn, score_dqn, loss_dqn, eps_dqn = pickle.load(f)
-with open('logs/double_dqn.pickle', 'rb') as f:
-    frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn = pickle.load(f)
-with open('logs/dqn_per.pickle', 'rb') as f:
-    frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per = pickle.load(f)
-
-data = []
-data.append((frame_dqn, score_dqn, loss_dqn, eps_dqn, "dqn", "darkgrey"))
-# data.append((frame_double_dqn, score_double_dqn, loss_double_dqn, eps_double_dqn, "double dqn", "coral"))
-data.append((frame_dqn_per, score_dqn_per, loss_dqn_per, eps_dqn_per, "dqn per", "blue"))
-plot(data)
+loading = True
+loaded_data = []
+if loading:
+    loaded_data.append(load_model('dqn', 'darkgrey'))
+    loaded_data.append(load_model('double dqn', 'salmon'))
+    loaded_data.append(load_model('dqn per', 'orange'))
+    loaded_data.append(load_model('dqn dueling', 'teal'))
+    plot(loaded_data)
