@@ -10,7 +10,7 @@ import torch
 
 from tqdm import tqdm
 
-def train(Agent, env, num_frames: int, plotting_interval: int = 200, PER: bool = False):
+def train(Agent, env, num_frames: int, PER: bool = False):
     """Train the agent."""
     Agent.is_test = False
     print(Agent)
@@ -24,10 +24,9 @@ def train(Agent, env, num_frames: int, plotting_interval: int = 200, PER: bool =
     for frame_idx in tqdm(range(1, num_frames + 1)):
         action = Agent.select_action(state)
         next_state, reward, done = Agent.step(action)
-
         state = next_state
         score += reward
-
+        
         # PER: increase beta
         if PER:
             fraction = min(frame_idx / num_frames, 1.0)

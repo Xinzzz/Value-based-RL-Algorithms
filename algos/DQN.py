@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from common.PER import PrioritizedReplayBuffer
 from common.experience_replay import ReplayBuffer
 from common.network import LinearNetwork
 from common.network import LinearDuelingNetwork
@@ -36,7 +37,14 @@ class DQNAgent(object):
         transition (list): transition information including 
                            state, action, reward, next_state, done
     """
-    def __init__(self, env: gym.Env, config, dueling: bool = False):
+    def __init__(
+        self, 
+        env: gym.Env, 
+        config, 
+        double: bool = False, 
+        PER: bool = False, 
+        dueling: bool = False,
+        ):
         """Initialization.     
         Args:
             env (gym.Env): openAI Gym environment
@@ -52,7 +60,6 @@ class DQNAgent(object):
         self.obs_dim = env.observation_space.shape[0]
         self.action_dim = env.action_space.n  
         self.env = env
-        self.memory = ReplayBuffer(self.obs_dim, config.memory_size, config.batch_size)
         self.batch_size = config.batch_size
         self.epsilon = config.max_epsilon
         self.epsilon_decay = config.epsilon_decay
@@ -60,14 +67,37 @@ class DQNAgent(object):
         self.min_epsilon = config.min_epsilon
         self.target_update = config.target_update
         self.gamma = config.gamma
+
+        self.PER = PER
+        self.double = double
+        self.dueling = dueling
+        # PER
+        # In DQN, We used "ReplayBuffer(obs_dim, memory_size, batch_size)"
+        self.beta = config.beta
+        self.prior_eps = config.prior_eps
+        if not self.PER:
+            self.memory = ReplayBuffer(self.obs_dim, config.memory_size, config.batch_size)
+        else:
+            self.memory = PrioritizedReplayBuffer(
+            self.obs_dim, config.memory_size, config.batch_size, config.alpha)
+
         # device: cpu / gpu
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         print(self.device)
 
+        if self.double:
+            print("Double DQN")
+        if self.dueling:
+            print("Dueling DQN")
+        if self.PER:
+            print("PER DQN")
+        print("DQN")
+
+
         # networks: dqn, dqn_target
-        if not dueling:
+        if not self.dueling:
             self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
             self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
         else:
@@ -114,13 +144,32 @@ class DQNAgent(object):
 
     def update_model(self) -> torch.Tensor:
         """Update the model by gradient descent."""
-        samples = self.memory.sample_batch()
+        # PER needs beta to calculate weights
+        if not self.PER:
+            samples = self.memory.sample_batch()
+            loss = self._compute_dqn_loss(samples)
+        else:
+            samples = self.memory.sample_batch(self.beta)
+            weights = torch.FloatTensor(
+                samples["weights"].reshape(-1, 1)
+            ).to(self.device)
 
-        loss = self._compute_dqn_loss(samples)
+            indices = samples["indices"]
+            # PER: importance sampling before average
+            elementwise_loss = self._compute_dqn_loss(samples)
+            loss = torch.mean(elementwise_loss * weights)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        if not self.PER:
+            pass
+        else:
+            # PER: update priorities
+            loss_for_prior = elementwise_loss.detach().cpu().numpy()
+            new_priorities = loss_for_prior + self.prior_eps
+            self.memory.update_priorities(indices, new_priorities)
 
         return loss.item()
         
@@ -133,19 +182,28 @@ class DQNAgent(object):
         reward = torch.FloatTensor(samples["rews"].reshape(-1, 1)).to(device)
         done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
-        # G_t   = r + gamma * v(s_{t+1})  if state != Terminal
-        #       = r                       otherwise
         curr_q_value = self.dqn(state).gather(1, action)
-        next_q_value = self.dqn_target(
-            next_state
-        ).max(dim=1, keepdim=True)[0].detach()
+
+        if not self.double:
+            # G_t   = r + gamma * v(s_{t+1})  if state != Terminal
+            #       = r                       otherwise
+            next_q_value = self.dqn_target(next_state).max(dim=1, keepdim=True)[0].detach()
+        else:           
+            # Double DQN
+            next_q_value = self.dqn_target(next_state).gather(1, self.dqn(next_state).argmax(dim=1, keepdim=True)).detach()
+
         mask = 1 - done
         target = (reward + self.gamma * next_q_value * mask).to(self.device)
 
-        # calculate dqn loss
-        loss = F.smooth_l1_loss(curr_q_value, target)
+        if not self.PER:
+            # calculate dqn loss
+            loss = F.smooth_l1_loss(curr_q_value, target)
+            return loss
+        else:
+            # calculate element-wise dqn loss
+            elementwise_loss = F.smooth_l1_loss(curr_q_value, target, reduction="none")
+            return elementwise_loss
 
-        return loss
 
     def _target_hard_update(self):
         """Hard update: target <- local."""

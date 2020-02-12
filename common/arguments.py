@@ -4,8 +4,8 @@ def get_args():
     parse = argparse.ArgumentParser()
 
     parse.add_argument('-seed', type=int, default=777, help='the random seeds')
-    parse.add_argument('-num_frames', type=int, default=5000, help='frams to train nn')
-    parse.add_argument('-memory_size', type=int, default=1000, help='length of replay memory to store transitions')
+    parse.add_argument('-num_frames', type=int, default=20000, help='frams to train nn')
+    parse.add_argument('-memory_size', type=int, default=10000, help='length of replay memory to store transitions')
     parse.add_argument('-batch_size', type=int, default=32, help='batch size for sampling')
     parse.add_argument('-target_update', type=int, default=100, help='period for target model hard update')
     parse.add_argument('-epsilon_decay', type=float, default=1 / 2000, help='step size to decrease epsilon')

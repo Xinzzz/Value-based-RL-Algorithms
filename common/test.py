@@ -1,19 +1,11 @@
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set(style="darkgrid")
 
-fig = plt.figure()
-
-fig.patch.set_facecolor('cyan')
-fig.patch.set_alpha(0.7)
-
-ax = fig.add_subplot(111)
-
-ax.plot(range(10))
-
-ax.patch.set_facecolor('red')
-ax.patch.set_alpha(0.5)
-
-# If we don't specify the edgecolor and facecolor for the figure when
-# saving with savefig, it will override the value we set earlier!
-fig.savefig('temp.png', facecolor='none', edgecolor='none')
-
+df = pd.DataFrame(dict(time=np.arange(500),
+                       value=np.random.randn(500).cumsum()))
+g = sns.relplot(x="time", y="value", kind="line", data=df)
+g.fig.autofmt_xdate()
 plt.show()
