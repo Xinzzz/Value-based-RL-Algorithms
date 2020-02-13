@@ -27,10 +27,13 @@ class ReplayBuffer:
         self.acts_buf[self.ptr] = act
         self.rews_buf[self.ptr] = rew
         self.done_buf[self.ptr] = done
+        # if buffer is full, replace the oldest one
         self.ptr = (self.ptr + 1) % self.max_size
+        # after stored, buffer size plus one, but no more than the max_size
         self.size = min(self.size + 1, self.max_size)
 
     def sample_batch(self) -> Dict[str, np.ndarray]:
+        # replace=False means samples that taken can not be repeated
         idxs = np.random.choice(self.size, size=self.batch_size, replace=False)
         return dict(obs=self.obs_buf[idxs],
                     next_obs=self.next_obs_buf[idxs],

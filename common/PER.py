@@ -19,7 +19,6 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         min_tree (MinSegmentTree): min tree for min prior to get max weight
         
     """
-    
     def __init__(
         self, 
         obs_dim: int,

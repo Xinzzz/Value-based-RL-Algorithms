@@ -19,24 +19,7 @@ from common.arguments import get_args
 config = get_args()
 
 class DQNAgent(object):
-    """DQN Agent interacting with environment.
-    
-    Attribute:
-        env (gym.Env): openAI Gym environment
-        memory (ReplayBuffer): replay memory to store transitions
-        batch_size (int): batch size for sampling
-        epsilon (float): parameter for epsilon greedy policy
-        epsilon_decay (float): step size to decrease epsilon
-        max_epsilon (float): max value of epsilon
-        min_epsilon (float): min value of epsilon
-        target_update (int): period for target model's hard update
-        gamma (float): discount factor
-        dqn (Network): model to train and select actions
-        dqn_target (Network): target model to update
-        optimizer (torch.optim): optimizer for training dqn
-        transition (list): transition information including 
-                           state, action, reward, next_state, done
-    """
+
     def __init__(
         self, 
         env: gym.Env, 
@@ -44,19 +27,9 @@ class DQNAgent(object):
         double: bool = False, 
         PER: bool = False, 
         dueling: bool = False,
+        opt: str = 'Adam',
         ):
-        """Initialization.     
-        Args:
-            env (gym.Env): openAI Gym environment
-            memory_size (int): length of memory
-            batch_size (int): batch size for sampling
-            target_update (int): period for target model's hard update
-            epsilon_decay (float): step size to decrease epsilon
-            lr (float): learning rate
-            max_epsilon (float): max value of epsilon
-            min_epsilon (float): min value of epsilon
-            gamma (float): discount factor
-        """
+        """Initialization"""
         self.obs_dim = env.observation_space.shape[0]
         self.action_dim = env.action_space.n  
         self.env = env
@@ -78,8 +51,7 @@ class DQNAgent(object):
         if not self.PER:
             self.memory = ReplayBuffer(self.obs_dim, config.memory_size, config.batch_size)
         else:
-            self.memory = PrioritizedReplayBuffer(
-            self.obs_dim, config.memory_size, config.batch_size, config.alpha)
+            self.memory = PrioritizedReplayBuffer(self.obs_dim, config.memory_size, config.batch_size, config.alpha)
 
         # device: cpu / gpu
         self.device = torch.device(
@@ -88,11 +60,11 @@ class DQNAgent(object):
         print(self.device)
 
         if self.double:
-            print("Double DQN")
+            print("Double")
         if self.dueling:
-            print("Dueling DQN")
+            print("Dueling")
         if self.PER:
-            print("PER DQN")
+            print("PER")
         print("DQN")
 
 
@@ -105,12 +77,17 @@ class DQNAgent(object):
             self.dqn_target = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
 
         self.dqn_target.load_state_dict(self.dqn.state_dict())
+        # dqn_target not for training, without change in dropout and BN
         self.dqn_target.eval()
         
         # optimizer
-        self.optimizer = optim.Adam(self.dqn.parameters())
+        if opt == 'RMSprop':
+            self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=2e-4, momentum=5e-2)
+        elif opt == 'Adam':
+            self.optimizer = optim.Adam(self.dqn.parameters())
 
         # transition to store in memory
+        # transition (list): transition information including state, action, reward, next_state, done
         self.transition = list()
         
         # mode: train / test
@@ -122,9 +99,8 @@ class DQNAgent(object):
         if self.epsilon > np.random.random():
             selected_action = self.env.action_space.sample()
         else:
-            selected_action = self.dqn(
-                torch.FloatTensor(state).to(self.device)
-            ).argmax()
+            selected_action = self.dqn(torch.FloatTensor(state).to(self.device)).argmax()
+            # get data from tensor
             selected_action = selected_action.detach().cpu().numpy()
         
         if not self.is_test:
@@ -138,6 +114,8 @@ class DQNAgent(object):
 
         if not self.is_test:
             self.transition += [reward, next_state, done]
+            # *list for unwarpping parameters
+            # store the transition into replay memory
             self.memory.store(*self.transition)
     
         return next_state, reward, done
