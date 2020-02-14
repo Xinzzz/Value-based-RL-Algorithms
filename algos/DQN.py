@@ -14,7 +14,10 @@ from common.PER import PrioritizedReplayBuffer
 from common.experience_replay import ReplayBuffer
 from common.network import LinearNetwork
 from common.network import LinearDuelingNetwork
+from common.network import NoisyLinearNetwork
+from common.network import NoisyLinearDuelingNetwork
 from common.arguments import get_args
+from tqdm import tqdm
 
 config = get_args()
 
@@ -27,6 +30,7 @@ class DQNAgent(object):
         double: bool = False, 
         PER: bool = False, 
         dueling: bool = False,
+        noisy: bool = False,
         opt: str = 'Adam',
         ):
         """Initialization"""
@@ -40,10 +44,11 @@ class DQNAgent(object):
         self.min_epsilon = config.min_epsilon
         self.target_update = config.target_update
         self.gamma = config.gamma
-
+        '''Components parameters'''
         self.PER = PER
         self.double = double
         self.dueling = dueling
+        self.noisy = noisy
         # PER
         # In DQN, We used "ReplayBuffer(obs_dim, memory_size, batch_size)"
         self.beta = config.beta
@@ -61,20 +66,32 @@ class DQNAgent(object):
 
         if self.double:
             print("Double")
-        if self.dueling:
-            print("Dueling")
         if self.PER:
             print("PER")
         print("DQN")
 
 
         # networks: dqn, dqn_target
-        if not self.dueling:
+        if not self.dueling and not self.noisy:
             self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
             self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-        else:
+
+        elif self.dueling and not self.noisy:
+            print("Dueling")
             self.dqn = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
             self.dqn_target = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
+
+        elif not self.dueling and self.noisy:
+            print("Noisy")
+            self.dqn = NoisyLinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+            self.dqn_target = NoisyLinearNetwork(self.obs_dim, self.action_dim).to(self.device)
+
+        elif self.dueling and self.noisy:
+            print("Dueling")
+            print("Noisy")
+            self.dqn = NoisyLinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
+            self.dqn_target = NoisyLinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
+
 
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         # dqn_target not for training, without change in dropout and BN
@@ -96,11 +113,11 @@ class DQNAgent(object):
     def select_action(self, state: np.ndarray) -> np.ndarray:
         """Select an action from the input state."""
         # epsilon greedy policy
-        if self.epsilon > np.random.random():
+        if self.epsilon > np.random.random() and not self.noisy:
             selected_action = self.env.action_space.sample()
         else:
             selected_action = self.dqn(torch.FloatTensor(state).to(self.device)).argmax()
-            # get data from tensor
+            # detach data from tensor
             selected_action = selected_action.detach().cpu().numpy()
         
         if not self.is_test:
@@ -141,13 +158,16 @@ class DQNAgent(object):
         loss.backward()
         self.optimizer.step()
 
-        if not self.PER:
-            pass
-        else:
-            # PER: update priorities
+        # PER: update priorities
+        if self.PER:
             loss_for_prior = elementwise_loss.detach().cpu().numpy()
             new_priorities = loss_for_prior + self.prior_eps
             self.memory.update_priorities(indices, new_priorities)
+
+        # NoisyNet: reset noise
+        if self.noisy:
+            self.dqn.reset_noise()
+            self.dqn_target.reset_noise()
 
         return loss.item()
         
@@ -186,3 +206,70 @@ class DQNAgent(object):
     def _target_hard_update(self):
         """Hard update: target <- local."""
         self.dqn_target.load_state_dict(self.dqn.state_dict())
+
+    def train(self, config):
+        """Train the agent."""
+        self.is_test = False
+        print(self)
+        state = self.env.reset()
+        update_cnt = 0
+        epsilons = []
+        losses = []
+        scores = []
+        score = 0
+
+        for frame_idx in tqdm(range(1, config.num_frames + 1)):
+            action = self.select_action(state)
+            next_state, reward, done = self.step(action)
+            state = next_state
+            score += reward
+            
+            # PER: increase beta
+            if self.PER:
+                fraction = min(frame_idx / config.num_frames, 1.0)
+                self.beta = self.beta + fraction * (1.0 - self.beta)
+
+            # if episode ends
+            if done:
+                state = self.env.reset()
+                scores.append(score)
+                score = 0
+
+            # if training is ready
+            if len(self.memory) >= self.batch_size:
+                loss = self.update_model()
+                losses.append(loss)
+                update_cnt += 1
+                
+                self.epsilon = max(
+                    self.min_epsilon, self.epsilon - (
+                        self.max_epsilon - self.min_epsilon
+                    ) * self.epsilon_decay
+                )
+                epsilons.append(self.epsilon)
+            
+                # if hard update is needed
+                if update_cnt % self.target_update == 0:
+                    self._target_hard_update()
+                
+        self.env.close()
+        return frame_idx, scores, losses, epsilons
+
+    def test(self) -> None:
+        """Test the agent."""
+        self.is_test = True
+        
+        state = self.env.reset()
+        done = False
+        score = 0
+        
+        while not done:
+            self.env.render()
+            action = self.select_action(state)
+            next_state, reward, done = self.step(action)
+
+            state = next_state
+            score += reward
+        
+        print("score: ", score)
+        self.env.close()

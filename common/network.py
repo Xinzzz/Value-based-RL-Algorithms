@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import math
 
 class LinearNetwork(nn.Module):
     def __init__(self, in_dim: int, out_dim: int):
@@ -21,6 +22,27 @@ class LinearNetwork(nn.Module):
         """Forward method implementation."""
         return self.layers(x)
 
+class NoisyLinearNetwork(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int):
+        """Initialization."""
+        super(NoisyLinearNetwork, self).__init__()
+
+        self.feature = nn.Linear(in_dim, 128)
+        self.noisy_layer1 = NoisyLinear(128, 128)
+        self.noisy_layer2 = NoisyLinear(128, out_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward method implementation."""
+        feature = F.relu(self.feature(x))
+        hidden = F.relu(self.noisy_layer1(feature))
+        out = self.noisy_layer2(hidden)
+        
+        return out
+    
+    def reset_noise(self):
+        """Reset all noisy layers."""
+        self.noisy_layer1.reset_noise()
+        self.noisy_layer2.reset_noise()
 
 class LinearDuelingNetwork(nn.Module):
     def __init__(self, in_dim: int, out_dim: int):
@@ -57,6 +79,46 @@ class LinearDuelingNetwork(nn.Module):
         q = value + advantage - advantage.mean(dim=-1, keepdim=True)
         
         return q
+
+class NoisyLinearDuelingNetwork(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int):
+        """Initialization."""
+        super(NoisyLinearDuelingNetwork, self).__init__()
+
+        # set common feature layer
+        self.feature_layer = nn.Sequential(
+            nn.Linear(in_dim, 128), 
+            nn.ReLU(),
+        )
+        
+        # set advantage layer
+        self.advantage_hidden_layer = NoisyLinear(128, 128)
+        self.advantage_layer = NoisyLinear(128, out_dim)
+
+        # set value layer
+        self.value_hidden_layer = NoisyLinear(128, 128)
+        self.value_layer = NoisyLinear(128, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward method implementation."""
+        feature = self.feature_layer(x)
+        
+        value_hidden = F.relu(self.value_hidden_layer(feature))
+        value = self.value_layer(value_hidden)
+
+        advantage_hidden = F.relu(self.advantage_hidden_layer(feature))
+        advantage = self.advantage_layer(advantage_hidden)
+
+        q = value + advantage - advantage.mean(dim=-1, keepdim=True)
+        
+        return q
+
+    def reset_noise(self):
+        """Reset all noisy layers."""
+        self.advantage_hidden_layer.reset_noise()
+        self.advantage_layer.reset_noise()
+        self.value_hidden_layer.reset_noise()
+        self.value_layer.reset_noise()
 
 class NoisyLinear(nn.Module):
     """Noisy linear module for NoisyNet.

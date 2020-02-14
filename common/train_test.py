@@ -44,14 +44,13 @@ def train(Agent, env, num_frames: int, PER: bool = False):
             losses.append(loss)
             update_cnt += 1
             
-            # linearly decrease epsilon
             Agent.epsilon = max(
                 Agent.min_epsilon, Agent.epsilon - (
                     Agent.max_epsilon - Agent.min_epsilon
                 ) * Agent.epsilon_decay
             )
             epsilons.append(Agent.epsilon)
-            
+        
             # if hard update is needed
             if update_cnt % Agent.target_update == 0:
                 Agent._target_hard_update()
