@@ -1,275 +1,215 @@
-import os
-from typing import Dict, List, Tuple
 import sys
+import os
 sys.path.append(os.path.abspath(os.path.dirname(__file__)+'/'+'..'))
-
+import matplotlib.pyplot as plt
 import gym
+import math
 import numpy as np
+import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import pickle
 
-from common.PER import PrioritizedReplayBuffer
-from common.experience_replay import ReplayBuffer
-from common.network import LinearNetwork
-from common.network import LinearDuelingNetwork
-from common.network import NoisyLinearNetwork
-from common.network import NoisyLinearDuelingNetwork
-from common.arguments import get_args
 from tqdm import tqdm
+from common.memory import ReplayBuffer
+from common.network import *
+from common.parameters import parse_argument
+from common.plot import *
+from common.wrappers import *
 
-config = get_args()
+config = parse_argument()
 
-class DQNAgent(object):
 
-    def __init__(
-        self, 
-        env: gym.Env, 
-        config, 
-        double: bool = False, 
-        PER: bool = False, 
-        dueling: bool = False,
-        noisy: bool = False,
-        opt: str = 'Adam',
-        ):
-        """Initialization"""
-        self.obs_dim = env.observation_space.shape[0]
-        self.action_dim = env.action_space.n  
+class DQNAgent:
+    def __init__(self, env, config):
         self.env = env
+        self.state_dim = env.observation_space.shape
+        self.action_dim = env.action_space.n
+
+        self.episodes = config.episodes
+
+        self.memory_size = config.memory_size
+        self.warmup_memory_size = config.warmup_memory_size
         self.batch_size = config.batch_size
-        self.epsilon = config.max_epsilon
-        self.epsilon_decay = config.epsilon_decay
-        self.max_epsilon = config.max_epsilon
-        self.min_epsilon = config.min_epsilon
-        self.target_update = config.target_update
+        self.replay_memory = ReplayBuffer(self.memory_size)
+
         self.gamma = config.gamma
-        '''Components parameters'''
-        self.PER = PER
-        self.double = double
-        self.dueling = dueling
-        self.noisy = noisy
-        # PER
-        # In DQN, We used "ReplayBuffer(obs_dim, memory_size, batch_size)"
-        self.beta = config.beta
-        self.prior_eps = config.prior_eps
-        if not self.PER:
-            self.memory = ReplayBuffer(self.obs_dim, config.memory_size, config.batch_size)
-        else:
-            self.memory = PrioritizedReplayBuffer(self.obs_dim, config.memory_size, config.batch_size, config.alpha)
 
-        # device: cpu / gpu
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.eps_start = config.eps_start
+        self.eps = 0
+        self.eps_end = config.eps_end
+        self.eps_decay = config.eps_decay 
+        self.step_count = 0
+        self.learn_step_count = 0
+
+        self.target_update_freq = config.target_update_freq
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         print(self.device)
-
-        if self.double:
-            print("Double")
-        if self.PER:
-            print("PER")
-        print("DQN")
-
-
-        # networks: dqn, dqn_target
-        if not self.dueling and not self.noisy:
-            self.dqn = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-            self.dqn_target = LinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-
-        elif self.dueling and not self.noisy:
-            print("Dueling")
-            self.dqn = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
-            self.dqn_target = LinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
-
-        elif not self.dueling and self.noisy:
-            print("Noisy")
-            self.dqn = NoisyLinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-            self.dqn_target = NoisyLinearNetwork(self.obs_dim, self.action_dim).to(self.device)
-
-        elif self.dueling and self.noisy:
-            print("Dueling")
-            print("Noisy")
-            self.dqn = NoisyLinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
-            self.dqn_target = NoisyLinearDuelingNetwork(self.obs_dim, self.action_dim).to(self.device)
-
-
-        self.dqn_target.load_state_dict(self.dqn.state_dict())
-        # dqn_target not for training, without change in dropout and BN
-        self.dqn_target.eval()
-        
-        # optimizer
-        if opt == 'RMSprop':
-            self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=2e-4, momentum=5e-2)
-        elif opt == 'Adam':
-            self.optimizer = optim.Adam(self.dqn.parameters())
-
-        # transition to store in memory
-        # transition (list): transition information including state, action, reward, next_state, done
-        self.transition = list()
-        
-        # mode: train / test
-        self.is_test = False
-
-    def select_action(self, state: np.ndarray) -> np.ndarray:
-        """Select an action from the input state."""
-        # epsilon greedy policy
-        if self.epsilon > np.random.random() and not self.noisy:
-            selected_action = self.env.action_space.sample()
+        if(len(self.env.observation_space.shape) >= 3):
+            # atari
+            self.dqn = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
+            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
         else:
-            selected_action = self.dqn(torch.FloatTensor(state).to(self.device)).argmax()
-            # detach data from tensor
-            selected_action = selected_action.detach().cpu().numpy()
-        
-        if not self.is_test:
-            self.transition = [state, selected_action]
-        
-        return selected_action
+            self.dqn = nn_DQN(self.state_dim, self.action_dim).to(self.device)
+            self.dqn_target = nn_DQN(self.state_dim, self.action_dim).to(self.device)
+        self.dqn_target.load_state_dict(self.dqn.state_dict())
+        self.dqn_target.eval() # for BN and Dropout
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, np.float64, bool]:
-        """Take an action and return the response of the env."""
-        next_state, reward, done, _ = self.env.step(action)
+        self.optimizer = optim.Adam(self.dqn.parameters())
+        self.loss_func = nn.SmoothL1Loss().to(self.device)
 
-        if not self.is_test:
-            self.transition += [reward, next_state, done]
-            # *list for unwarpping parameters
-            # store the transition into replay memory
-            self.memory.store(*self.transition)
-    
-        return next_state, reward, done
+    def select_action(self, state) -> torch.Tensor:
+        sample = random.random()
+        self.eps = self.eps_end + (self.eps_start - self.eps_end) * \
+            math.exp(-1. * self.step_count / self.eps_decay)
+
+        self.step_count += 1
+
+        if sample > self.eps:
+            with torch.no_grad():
+                if len(self.state_dim) >= 3:
+                    state = np.array(state) / 255.0
+                state = np.array(state)
+                state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+                return self.dqn(state).max(1)[1]
+        else:
+            return torch.tensor([[random.randrange(self.action_dim)]], device=self.device, dtype=torch.long)
 
     def update_model(self) -> torch.Tensor:
-        """Update the model by gradient descent."""
-        # PER needs beta to calculate weights
-        if not self.PER:
-            samples = self.memory.sample_batch()
-            loss = self._compute_dqn_loss(samples)
-        else:
-            samples = self.memory.sample_batch(self.beta)
-            weights = torch.FloatTensor(
-                samples["weights"].reshape(-1, 1)
-            ).to(self.device)
-
-            indices = samples["indices"]
-            # PER: importance sampling before average
-            elementwise_loss = self._compute_dqn_loss(samples)
-            loss = torch.mean(elementwise_loss * weights)
+        # not enough memory to train
+        if len(self.replay_memory) < self.batch_size:
+            return 
+        if self.learn_step_count % self.target_update_freq == 0:
+            self._target_hard_update()
+            print("")
+            print("update target network...")
+        self.learn_step_count += 1
+        # return a dict
+        experiences = self.replay_memory.sample(self.batch_size)
+        loss = self._compute_loss(experiences)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        # PER: update priorities
-        if self.PER:
-            loss_for_prior = elementwise_loss.detach().cpu().numpy()
-            new_priorities = loss_for_prior + self.prior_eps
-            self.memory.update_priorities(indices, new_priorities)
-
-        # NoisyNet: reset noise
-        if self.noisy:
-            self.dqn.reset_noise()
-            self.dqn_target.reset_noise()
-
         return loss.item()
-        
-    def _compute_dqn_loss(self, samples: Dict[str, np.ndarray]) -> torch.Tensor:
-        """Return dqn loss."""
-        device = self.device  # for shortening the following lines
-        state = torch.FloatTensor(samples["obs"]).to(device)
-        next_state = torch.FloatTensor(samples["next_obs"]).to(device)
-        action = torch.LongTensor(samples["acts"].reshape(-1, 1)).to(device)
-        reward = torch.FloatTensor(samples["rews"].reshape(-1, 1)).to(device)
-        done = torch.FloatTensor(samples["done"].reshape(-1, 1)).to(device)
 
-        curr_q_value = self.dqn(state).gather(1, action)
+    def _compute_loss(self, experience_samples) -> torch.Tensor:
+        device = self.device
 
-        if not self.double:
-            # G_t   = r + gamma * v(s_{t+1})  if state != Terminal
-            #       = r                       otherwise
-            next_q_value = self.dqn_target(next_state).max(dim=1, keepdim=True)[0].detach()
-        else:           
-            # Double DQN
-            next_q_value = self.dqn_target(next_state).gather(1, self.dqn(next_state).argmax(dim=1, keepdim=True)).detach()
+        state = torch.FloatTensor(experience_samples["state"]).to(device)
+        next_state = torch.FloatTensor(experience_samples["next_state"]).to(device)
+        action = torch.LongTensor(experience_samples["action"].reshape(-1, 1)).to(device)
+        reward = torch.FloatTensor(experience_samples["reward"].reshape(-1, 1)).to(device)
+        done = torch.FloatTensor(experience_samples["done"].reshape(-1, 1)).to(device)
+
+        if len(self.state_dim) >= 3:
+            state /= 255.0
+            next_state /= 255.0
+
+        cur_qval = self.dqn(state).gather(1, action)
+        next_qval = self.dqn_target(next_state).max(dim=1, keepdim=True)[0].detach()
 
         mask = 1 - done
-        target = (reward + self.gamma * next_q_value * mask).to(self.device)
 
-        if not self.PER:
-            # calculate dqn loss
-            loss = F.smooth_l1_loss(curr_q_value, target)
-            return loss
-        else:
-            # calculate element-wise dqn loss
-            elementwise_loss = F.smooth_l1_loss(curr_q_value, target, reduction="none")
-            return elementwise_loss
+        target = (reward + next_qval * self.gamma * mask).to(device)
 
+        loss = self.loss_func(cur_qval, target)
+
+        return loss
 
     def _target_hard_update(self):
-        """Hard update: target <- local."""
         self.dqn_target.load_state_dict(self.dqn.state_dict())
 
-    def train(self, config):
-        """Train the agent."""
-        self.is_test = False
-        print(self)
+    def train(self):
         state = self.env.reset()
-        update_cnt = 0
-        epsilons = []
+        episodes_reward = []
         losses = []
-        scores = []
-        score = 0
+        eps = []
+        rewards = 0
+        learning_flag = True
+        print("Start!")
+        plt.ion()
+        for episode in tqdm(range(1, self.episodes + 1)):
 
-        for frame_idx in tqdm(range(1, config.num_frames + 1)):
-            action = self.select_action(state)
-            next_state, reward, done = self.step(action)
-            state = next_state
-            score += reward
-            
-            # PER: increase beta
-            if self.PER:
-                fraction = min(frame_idx / config.num_frames, 1.0)
-                self.beta = self.beta + fraction * (1.0 - self.beta)
+            while True:
+                action = self.select_action(state).item()
 
-            # if episode ends
-            if done:
-                state = self.env.reset()
-                scores.append(score)
-                score = 0
+                next_state, reward, done, _ = self.env.step(action)
+                self.env.render()
+                self.replay_memory.store(state, action, reward, next_state, done)
 
-            # if training is ready
-            if len(self.memory) >= self.batch_size:
-                loss = self.update_model()
-                losses.append(loss)
-                update_cnt += 1
-                
-                self.epsilon = max(
-                    self.min_epsilon, self.epsilon - (
-                        self.max_epsilon - self.min_epsilon
-                    ) * self.epsilon_decay
-                )
-                epsilons.append(self.epsilon)
-            
-                # if hard update is needed
-                if update_cnt % self.target_update == 0:
-                    self._target_hard_update()
-                
+                state = next_state
+                rewards += reward
+
+                # if episode ends
+                if done:
+                    state = self.env.reset()
+                    episodes_reward.append(rewards)
+                    rewards = 0    
+                    plot_anim(episodes_reward, losses, eps)      
+                    if self.step_count % 1000 == 0:
+                        print("current timestep : ", self.step_count)       
+                    break
+
+                # its about to train
+                if len(self.replay_memory) >= self.warmup_memory_size:
+                    if learning_flag:
+                        print("")
+                        print("Start Training...")
+                        learning_flag = False
+                    loss = self.update_model()
+                    losses.append(loss)
+                    eps.append(self.eps)
+
+
         self.env.close()
-        return frame_idx, scores, losses, epsilons
+        plt.show()
+        plt.ioff()
+        return episode, self.step_count, episodes_reward, losses, eps
 
-    def test(self) -> None:
-        """Test the agent."""
-        self.is_test = True
-        
-        state = self.env.reset()
-        done = False
-        score = 0
-        
-        while not done:
-            self.env.render()
-            action = self.select_action(state)
-            next_state, reward, done = self.step(action)
 
-            state = next_state
-            score += reward
-        
-        print("score: ", score)
-        self.env.close()
+
+seed = config.seed
+env = gym.make(config.env)
+env = wrap_env(env)
+
+
+
+
+def seed_torch(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.backends.cudnn.enabled:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+def save_model(model, data):
+    path = 'logs/' + model + '.pickle'
+    with open(path, 'wb') as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+seed_torch(seed)
+env.seed(seed)
+
+data_to_store = {}
+agent = DQNAgent(env, config)
+episode_dqn, step_dqn, score_dqn, loss_dqn, eps_dqn = agent.train()
+data_to_store['dqn'] = (episode_dqn, step_dqn, score_dqn, loss_dqn, eps_dqn)
+data = data_to_store['dqn'] 
+save_model('dqn', data)
+
+plot(data)
+
+
+                
+
+
+
+
+
+
