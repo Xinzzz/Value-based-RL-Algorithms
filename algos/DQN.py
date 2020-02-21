@@ -15,40 +15,40 @@ import pickle
 from tqdm import tqdm
 from common.memory import ReplayBuffer
 from common.network import *
-from common.parameters import parse_argument
 from common.plot import *
 from common.wrappers import *
-
-config = parse_argument()
+from common.logger import *
 
 
 class DQNAgent:
-    def __init__(self, env, config):
+    def __init__(self, env, params):
         self.env = env
         self.state_dim = env.observation_space.shape
         self.action_dim = env.action_space.n
 
-        self.episodes = config.episodes
+        self.episodes = params['episode']
+        self.name = params['run_name']
 
-        self.memory_size = config.memory_size
-        self.warmup_memory_size = config.warmup_memory_size
-        self.batch_size = config.batch_size
-        self.replay_memory = ReplayBuffer(self.memory_size)
+        self.replay_size = params['replay_size']
+        self.replay_warmup = params['replay_warmup']
+        self.batch_size = params['batch_size']
+        self.replay_memory = ReplayBuffer(self.replay_size)
 
-        self.gamma = config.gamma
+        self.gamma = params['gamma']
 
-        self.eps_start = config.eps_start
-        self.eps = 0
-        self.eps_end = config.eps_end
-        self.eps_decay = config.eps_decay 
+        self.epsilon_start = params['epsilon_start']
+        self.epsilon = 0
+        self.epsilon_final = params['epsilon_final']
+        self.epsilon_decay = params['epsilon_decay']
         self.step_count = 0
         self.learn_step_count = 0
+        self.is_test = False
 
-        self.target_update_freq = config.target_update_freq
+
+        self.target_update_freq = params['target_update_freq']
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        print(self.device)
         if(len(self.env.observation_space.shape) >= 3):
             # atari
             self.dqn = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
@@ -59,16 +59,16 @@ class DQNAgent:
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval() # for BN and Dropout
 
-        self.optimizer = optim.Adam(self.dqn.parameters())
+        self.learning_rate = params['learning_rate']
+        self.optimizer = optim.Adam(self.dqn.parameters(), lr=self.learning_rate)
         self.loss_func = nn.SmoothL1Loss().to(self.device)
 
     def select_action(self, state) -> torch.Tensor:
         sample = random.random()
-        self.eps = self.eps_end + (self.eps_start - self.eps_end) * \
-            math.exp(-1. * self.step_count / self.eps_decay)
+        self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
+            math.exp(-1. * self.step_count / self.epsilon_decay)
 
-        self.step_count += 1
-
+        self.step_count += 1   
         if sample > self.eps:
             with torch.no_grad():
                 if len(self.state_dim) >= 3:
@@ -85,8 +85,8 @@ class DQNAgent:
             return 
         if self.learn_step_count % self.target_update_freq == 0:
             self._target_hard_update()
-            print("")
-            print("update target network...")
+            # print("")
+            # print_green("update target network...")
         self.learn_step_count += 1
         # return a dict
         experiences = self.replay_memory.sample(self.batch_size)
@@ -125,42 +125,68 @@ class DQNAgent:
     def _target_hard_update(self):
         self.dqn_target.load_state_dict(self.dqn.state_dict())
 
+    def load_saved_model(self):
+        self.dqn.load_state_dict(load_model(self.name))
+
     def train(self):
+        loading = False
+        saving = True
+        self.is_test = False
         state = self.env.reset()
         episodes_reward = []
+        mean_reward = []
         losses = []
         eps = []
         rewards = 0
         learning_flag = True
-        print("Start!")
+        cur_episode = 1
         plt.ion()
-        for episode in tqdm(range(1, self.episodes + 1)):
+        if loading:
+            loading = False
+            print("")
+            print_yellow('loading checkpoint..')
+            loaded_checkpoint = load_ckpt(self.name, 1000)
+            self.dqn.load_state_dict(loaded_checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(loaded_checkpoint['optim_state_dict'])
+            cur_episode = loaded_checkpoint['episode']
+            episodes_reward = loaded_checkpoint['total_reward']
+            mean_reward = loaded_checkpoint['mean_reward']
+            losses = loaded_checkpoint['total_loss']
+            eps = loaded_checkpoint['total_eps']
+            self.step_count = loaded_checkpoint['numsteps']
+            self.dqn.train()
 
+        for episode in tqdm(range(cur_episode, self.episodes + 1)):
             while True:
                 action = self.select_action(state).item()
 
                 next_state, reward, done, _ = self.env.step(action)
                 self.env.render()
-                self.replay_memory.store(state, action, reward, next_state, done)
+                if not self.is_test:
+                    self.replay_memory.store(state, action, reward, next_state, done)
 
                 state = next_state
                 rewards += reward
-
+                if saving:
+                    if self.step_count % 10000 == 0:
+                        print("")
+                        print_yellow("saving checkpoint..")
+                        save_ckpt(self.dqn, self.name, episode, self.optimizer, episodes_reward, mean_reward, losses, eps, self.step_count)
                 # if episode ends
                 if done:
                     state = self.env.reset()
                     episodes_reward.append(rewards)
                     rewards = 0    
-                    plot_anim(episodes_reward, losses, eps)      
-                    if self.step_count % 1000 == 0:
-                        print("current timestep : ", self.step_count)       
+                    mean = np.mean(episodes_reward[max(0, len(episodes_reward)-100):(len(episodes_reward)+1)])
+                    mean_reward.append(mean)
+                    #plot_anim(episodes_reward, mean_reward, losses, eps)      
                     break
 
                 # its about to train
-                if len(self.replay_memory) >= self.warmup_memory_size:
+                if len(self.replay_memory) >= self.replay_warmup:
                     if learning_flag:
                         print("")
-                        print("Start Training...")
+                        print_green("Start Training...")
                         learning_flag = False
                     loss = self.update_model()
                     losses.append(loss)
@@ -170,40 +196,28 @@ class DQNAgent:
         self.env.close()
         plt.show()
         plt.ioff()
-        return episode, self.step_count, episodes_reward, losses, eps
+        
+        save_data(self.name, episode, self.step_count, episodes_reward, losses, eps)
+        save_model(self.dqn, self.name)
 
+    def test(self) -> None:
+        """Test the agent."""
+        self.is_test = True
+        
+        state = self.env.reset()
+        done = False
+        score = 0
+        
+        while not done:
+            self.env.render()
+            action = self.select_action(state).item()
+            next_state, reward, done, _ = self.env.step(action)
 
-
-seed = config.seed
-env = gym.make(config.env)
-env = wrap_env(env)
-
-
-
-
-def seed_torch(seed):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.backends.cudnn.enabled:
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-
-def save_model(model, data):
-    path = 'logs/' + model + '.pickle'
-    with open(path, 'wb') as f:
-        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-seed_torch(seed)
-env.seed(seed)
-
-data_to_store = {}
-agent = DQNAgent(env, config)
-episode_dqn, step_dqn, score_dqn, loss_dqn, eps_dqn = agent.train()
-data_to_store['dqn'] = (episode_dqn, step_dqn, score_dqn, loss_dqn, eps_dqn)
-data = data_to_store['dqn'] 
-save_model('dqn', data)
-
-plot(data)
+            state = next_state
+            score += reward
+        
+        print("score: ", score)
+        self.env.close()
 
 
                 
