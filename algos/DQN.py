@@ -12,7 +12,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import pickle
 
-from tqdm import tqdm
 from common.memory import ReplayBuffer
 from common.network import *
 from common.plot import *
@@ -41,6 +40,7 @@ class DQNAgent:
         self.epsilon_final = params['epsilon_final']
         self.epsilon_decay = params['epsilon_decay']
         self.step_count = 0
+        self.loss = 0
         self.learn_step_count = 0
         self.is_test = False
 
@@ -129,7 +129,7 @@ class DQNAgent:
         self.dqn.load_state_dict(load_model(self.name))
 
     def train(self):
-        loading = False
+        loading = True
         saving = True
         self.is_test = False
         state = self.env.reset()
@@ -145,7 +145,7 @@ class DQNAgent:
             loading = False
             print("")
             print_yellow('loading checkpoint..')
-            loaded_checkpoint = load_ckpt(self.name, 1000)
+            loaded_checkpoint = load_ckpt(self.name, 440000)
             self.dqn.load_state_dict(loaded_checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(loaded_checkpoint['optim_state_dict'])
             cur_episode = loaded_checkpoint['episode']
@@ -156,7 +156,7 @@ class DQNAgent:
             self.step_count = loaded_checkpoint['numsteps']
             self.dqn.train()
 
-        for episode in tqdm(range(cur_episode, self.episodes + 1)):
+        for episode in range(cur_episode, self.episodes + 1):
             while True:
                 action = self.select_action(state).item()
 
@@ -171,15 +171,18 @@ class DQNAgent:
                     if self.step_count % 10000 == 0:
                         print("")
                         print_yellow("saving checkpoint..")
-                        save_ckpt(self.dqn, self.name, episode, self.optimizer, episodes_reward, mean_reward, losses, eps, self.step_count)
+                        save_ckpt(self.dqn, self.name, episode, 
+                        self.optimizer, episodes_reward, mean_reward, 
+                        losses, eps, self.step_count, self.replay_memory)
                 # if episode ends
                 if done:
                     state = self.env.reset()
                     episodes_reward.append(rewards)
+                    log_show(self.step_count, episode, self.episodes, rewards, self.loss, self.eps, len(self.replay_memory)) 
                     rewards = 0    
                     mean = np.mean(episodes_reward[max(0, len(episodes_reward)-100):(len(episodes_reward)+1)])
                     mean_reward.append(mean)
-                    #plot_anim(episodes_reward, mean_reward, losses, eps)      
+                    plot_anim(episodes_reward, mean_reward, losses, eps)     
                     break
 
                 # its about to train
@@ -188,8 +191,8 @@ class DQNAgent:
                         print("")
                         print_green("Start Training...")
                         learning_flag = False
-                    loss = self.update_model()
-                    losses.append(loss)
+                    self.loss = self.update_model()
+                    losses.append(self.loss)
                     eps.append(self.eps)
 
 

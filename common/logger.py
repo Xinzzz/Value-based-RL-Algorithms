@@ -55,7 +55,7 @@ def load_data(model_name):
     loaded_data = torch.load(filedir)
     plot(loaded_data)
 
-def save_ckpt(model, model_name, episode, optimizer, rewards, mean_reward, losses, eps, step):
+def save_ckpt(model, model_name, episode, optimizer, rewards, mean_reward, losses, eps, step, replay_memory):
     filename = model_name + str(step) + '_ckpt.tar'
     filedir = os.path.join(ckpt_dir, filename)
     state = {
@@ -66,7 +66,8 @@ def save_ckpt(model, model_name, episode, optimizer, rewards, mean_reward, losse
         'mean_reward': mean_reward,
         'total_loss':losses,
         'total_eps':eps,
-        'numsteps':step
+        'numsteps':step,
+        'replay': replay_memory
     }
     torch.save(state, filedir)
 
@@ -77,4 +78,13 @@ def load_ckpt(model_name, step):
     return checkpoint
 
 
-# def save_video(model_name):
+def log_show(step, episode, total_episodes, reward, loss, eps, memory_size):
+    print_cyan('-----------------------------------------------')
+    print('timestep: ', step)
+    print('episode: ', episode, '/', total_episodes)
+    print('reward: ', reward)
+    print('loss: ', loss)
+    print('epsilon: ', eps)
+    print('memory: ', memory_size)
+    print("")
+

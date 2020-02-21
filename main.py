@@ -8,7 +8,7 @@ from common.wrappers import *
 from common.logger import *
 from common.hyperparameters import *
 
-env_run_name = 'pong'
+env_run_name = 'cartpole'
 params = HYPERPARAMS[env_run_name]
 
 seed = params['seed']
