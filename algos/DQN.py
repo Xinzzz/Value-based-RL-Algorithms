@@ -11,8 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pickle
+import time
 
-from common.memory import ReplayBuffer
+from common.memory import *
 from common.network import *
 from common.plot import *
 from common.wrappers import *
@@ -20,13 +21,14 @@ from common.logger import *
 
 
 class DQNAgent:
-    def __init__(self, env, params):
+    def __init__(self, env, params, double=False, dueling=False, noisy=False, mod=False, target=False):
         self.env = env
         self.state_dim = env.observation_space.shape
         self.action_dim = env.action_space.n
 
         self.episodes = params['episode']
-        self.name = params['run_name']
+        self.env_name = params['run_name']
+        self.model_name = 'dqn'
 
         self.replay_size = params['replay_size']
         self.replay_warmup = params['replay_warmup']
@@ -36,14 +38,38 @@ class DQNAgent:
         self.gamma = params['gamma']
 
         self.epsilon_start = params['epsilon_start']
-        self.epsilon = 0
+        self.eps = self.epsilon_start
         self.epsilon_final = params['epsilon_final']
         self.epsilon_decay = params['epsilon_decay']
+        self.decay_step = 0
         self.step_count = 0
         self.loss = 0
+        self.starting_learning = False
         self.learn_step_count = 0
         self.is_test = False
 
+        '''
+        DQN extension 
+        '''
+        self.double = double
+        if self.double:
+            self.model_name += '_double'
+
+        self.dueling = dueling
+        if self.dueling:
+            self.model_name += '_dueling' 
+
+        self.noisy = noisy
+        if self.noisy:
+            self.model_name += '_noisy'
+
+        self.mod = mod
+        if self.mod:
+            self.model_name += '_mod'
+
+        self.target = target
+        if self.target:
+            self.model_name += '_target'
 
         self.target_update_freq = params['target_update_freq']
 
@@ -51,11 +77,15 @@ class DQNAgent:
 
         if(len(self.env.observation_space.shape) >= 3):
             # atari
-            self.dqn = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
-            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
+            self.dqn = cnn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
+            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
         else:
-            self.dqn = nn_DQN(self.state_dim, self.action_dim).to(self.device)
-            self.dqn_target = nn_DQN(self.state_dim, self.action_dim).to(self.device)
+            if not self.dueling:
+                self.dqn = nn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
+                self.dqn_target = nn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
+            elif self.dueling:
+                self.dqn = nn_Dueling(self.state_dim, self.action_dim, self.noisy).to(self.device)
+                self.dqn_target = nn_Dueling(self.state_dim, self.action_dim, self.noisy).to(self.device)
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval() # for BN and Dropout
 
@@ -65,9 +95,14 @@ class DQNAgent:
 
     def select_action(self, state) -> torch.Tensor:
         sample = random.random()
-        self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
-            math.exp(-1. * self.step_count / self.epsilon_decay)
-
+        if not self.noisy:
+            if self.starting_learning:
+                self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
+                    math.exp(-1. * self.decay_step / self.epsilon_decay)
+                self.decay_step += 1
+        elif self.noisy:
+            self.eps = 0
+            
         self.step_count += 1   
         if sample > self.eps:
             with torch.no_grad():
@@ -96,6 +131,10 @@ class DQNAgent:
         loss.backward()
         self.optimizer.step()
 
+        if self.noisy:
+            self.dqn.reset_noise()
+            self.dqn_target.reset_noise()
+
         return loss.item()
 
     def _compute_loss(self, experience_samples) -> torch.Tensor:
@@ -112,7 +151,10 @@ class DQNAgent:
             next_state /= 255.0
 
         cur_qval = self.dqn(state).gather(1, action)
-        next_qval = self.dqn_target(next_state).max(dim=1, keepdim=True)[0].detach()
+        if not self.double:
+            next_qval = self.dqn_target(next_state).max(dim=1, keepdim=True)[0].detach()
+        elif self.double:
+            next_qval = self.dqn_target(next_state).gather(1, self.dqn(next_state).argmax(dim=1, keepdim=True)).detach()
 
         mask = 1 - done
 
@@ -126,10 +168,11 @@ class DQNAgent:
         self.dqn_target.load_state_dict(self.dqn.state_dict())
 
     def load_saved_model(self):
-        self.dqn.load_state_dict(load_model(self.name))
+        self.dqn.load_state_dict(load_model(self.env_name + self.model_name))
 
     def train(self):
-        loading = True
+        start_time = time.time()
+        loading = False
         saving = True
         self.is_test = False
         state = self.env.reset()
@@ -138,14 +181,14 @@ class DQNAgent:
         losses = []
         eps = []
         rewards = 0
-        learning_flag = True
         cur_episode = 1
         plt.ion()
+        rewardbuffer = RewardBuffer(5)
         if loading:
-            loading = False
+            loading = True
             print("")
             print_yellow('loading checkpoint..')
-            loaded_checkpoint = load_ckpt(self.name, 440000)
+            loaded_checkpoint = load_ckpt(self.env_name + self.model_name, 100000)
             self.dqn.load_state_dict(loaded_checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(loaded_checkpoint['optim_state_dict'])
             cur_episode = loaded_checkpoint['episode']
@@ -153,7 +196,10 @@ class DQNAgent:
             mean_reward = loaded_checkpoint['mean_reward']
             losses = loaded_checkpoint['total_loss']
             eps = loaded_checkpoint['total_eps']
+            self.eps = loaded_checkpoint['cur_eps']
             self.step_count = loaded_checkpoint['numsteps']
+            self.replay_memory = loaded_checkpoint['replay']
+            self.decay_step = self.step_count - self.replay_warmup
             self.dqn.train()
 
         for episode in range(cur_episode, self.episodes + 1):
@@ -161,19 +207,20 @@ class DQNAgent:
                 action = self.select_action(state).item()
 
                 next_state, reward, done, _ = self.env.step(action)
-                self.env.render()
+                # self.env.render()
+
                 if not self.is_test:
                     self.replay_memory.store(state, action, reward, next_state, done)
-
+                    
                 state = next_state
                 rewards += reward
                 if saving:
                     if self.step_count % 10000 == 0:
                         print("")
                         print_yellow("saving checkpoint..")
-                        save_ckpt(self.dqn, self.name, episode, 
+                        save_ckpt(self.dqn, self.env_name + self.model_name, episode, 
                         self.optimizer, episodes_reward, mean_reward, 
-                        losses, eps, self.step_count, self.replay_memory)
+                        losses, eps, self.eps, self.step_count, self.replay_memory)
                 # if episode ends
                 if done:
                     state = self.env.reset()
@@ -182,15 +229,15 @@ class DQNAgent:
                     rewards = 0    
                     mean = np.mean(episodes_reward[max(0, len(episodes_reward)-100):(len(episodes_reward)+1)])
                     mean_reward.append(mean)
-                    plot_anim(episodes_reward, mean_reward, losses, eps)     
+                    # plot_anim(episodes_reward, mean_reward, losses, eps)     
                     break
 
                 # its about to train
                 if len(self.replay_memory) >= self.replay_warmup:
-                    if learning_flag:
+                    if not self.starting_learning:
                         print("")
                         print_green("Start Training...")
-                        learning_flag = False
+                        self.starting_learning = True
                     self.loss = self.update_model()
                     losses.append(self.loss)
                     eps.append(self.eps)
@@ -199,9 +246,10 @@ class DQNAgent:
         self.env.close()
         plt.show()
         plt.ioff()
-        
-        save_data(self.name, episode, self.step_count, episodes_reward, losses, eps)
-        save_model(self.dqn, self.name)
+        end_time = time.time()
+        print_cyan(f'Training cost {round(((end_time - start_time) / 60), 2)} mins')
+        save_data(self.env_name + self.model_name, self.model_name, episode, self.step_count, episodes_reward, losses, eps)
+        save_model(self.dqn, self.env_name + self.model_name)
 
     def test(self) -> None:
         """Test the agent."""

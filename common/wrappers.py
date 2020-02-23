@@ -22,7 +22,10 @@ def wrap_env(env):
 def make_atari(env_id, max_episode_steps=None):
     env = gym.make(env_id)
     assert 'NoFrameskip' in env.spec.id
+    # performs random amount of NOOP actions on the reset
     env = NoopResetEnv(env, noop_max=30)
+
+    # repeats chosen action for 4 Atai environment frames to speed up training
     env = MaxAndSkipEnv(env, skip=4)
     if max_episode_steps is not None:
         env = TimeLimit(env, max_episode_steps=max_episode_steps)
@@ -32,15 +35,20 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, 
     """Configure environment for DeepMind-style Atari.
     """
     if episode_life:
+        # ends episode at every life lost which helps to converge faster
         env = EpisodicLifeEnv(env)
     if 'FIRE' in env.unwrapped.get_action_meanings():
+        # presses fire in the beginning. Some environments require this to start the game.
         env = FireResetEnv(env)
+    # Frame converted to grayscale and scaled down to 84*84 pixels
     env = WarpFrame(env)
     if scale:
         env = ScaledFloatFrame(env)
     if clip_rewards:
+        # clips reward to -1..+1 range
         env = ClipRewardEnv(env)
     if frame_stack:
+        # passes the last 4 frames as observation
         env = FrameStack(env, 4)
     return env
 

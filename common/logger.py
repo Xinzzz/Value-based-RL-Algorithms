@@ -43,19 +43,21 @@ def load_model(model_name):
     loaded_model = torch.load(filedir)
     return loaded_model
 
-def save_data(model_name, episode, steps, reward, loss, eps):
-    filename = model_name + '_plot.pth'
+def save_data(file_name, model_name, episode, steps, reward, loss, eps):
+    filename = file_name + '_plot.pth'
     filedir = os.path.join(log_dir, filename)
-    data = (episode, steps, reward, loss, eps)
+    data = (model_name, episode, steps, reward, loss, eps)
     torch.save(data, filedir)
 
 def load_data(model_name):
     filename = model_name + '_plot.pth'
     filedir = os.path.join(log_dir, filename)
     loaded_data = torch.load(filedir)
-    plot(loaded_data)
+    return loaded_data
 
-def save_ckpt(model, model_name, episode, optimizer, rewards, mean_reward, losses, eps, step, replay_memory):
+def save_ckpt(model, model_name, episode, optimizer, rewards, 
+mean_reward, losses, total_eps, cur_eps, step, replay_memory
+):
     filename = model_name + str(step) + '_ckpt.tar'
     filedir = os.path.join(ckpt_dir, filename)
     state = {
@@ -65,7 +67,8 @@ def save_ckpt(model, model_name, episode, optimizer, rewards, mean_reward, losse
         'total_reward': rewards,
         'mean_reward': mean_reward,
         'total_loss':losses,
-        'total_eps':eps,
+        'total_eps':total_eps,
+        'cur_eps': cur_eps,
         'numsteps':step,
         'replay': replay_memory
     }

@@ -40,6 +40,24 @@ class ReplayBuffer():
         return result
 
 
+class RewardBuffer():
+    def __init__(self, max_size):
+        self.memory = []
+        self.max_size = max_size
+        self.cur_index = 0
 
+    def __len__(self):
+        return len(self.memory)
 
+    def store(self, reward):
+        reward = reward
+        if len(self.memory) < self.max_size:
+            self.memory.append(reward)
+        else:
+            self.memory[self.cur_index] = reward
+
+        self.cur_index = (self.cur_index + 1) % self.max_size
+
+    def get_mean_reward(self):
+        return np.mean(self.memory)
 
