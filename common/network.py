@@ -5,20 +5,20 @@ import numpy as np
 import math
 
 class nn_DQN(nn.Module):
-    def __init__(self, input_dim, output_dim, noisy=False):
+    def __init__(self, input_dim, output_dim, hidden_dim, hidden_dim_2, noisy=False):
         super(nn_DQN, self).__init__()
 
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.noisy = noisy
-        self.feature = nn.Linear(input_dim[0], 128)
+        self.feature = nn.Linear(input_dim[0], hidden_dim)
         
         if not self.noisy:
-            self.hidden = nn.Linear(128, 128)
-            self.out = nn.Linear(128, output_dim)
+            self.hidden = nn.Linear(hidden_dim, hidden_dim_2)
+            self.out = nn.Linear(hidden_dim_2, output_dim)
         elif self.noisy:
-            self.hidden = NoisyLinear(128, 128)
-            self.out = NoisyLinear(128, output_dim)
+            self.hidden = NoisyLinear(hidden_dim, hidden_dim_2)
+            self.out = NoisyLinear(hidden_dim_2, output_dim)
 
     def forward(self, x):
         x = F.relu(self.feature(x))
@@ -32,30 +32,30 @@ class nn_DQN(nn.Module):
         self.out.reset_noise()
 
 class nn_Dueling(nn.Module):
-    def __init__(self, input_dim, output_dim, noisy=False):
+    def __init__(self, input_dim, output_dim,  hidden_dim, hidden_dim_2, noisy=False):
         super(nn_Dueling, self).__init__()
 
         # common feature layer
         self.feature = nn.Sequential(
-            nn.Linear(input_dim[0], 128),
+            nn.Linear(input_dim[0], hidden_dim),
             nn.ReLU(),
         )
 
         # adv layer
         if not noisy:
-            self.adv_hidden_layer = nn.Linear(128, 128)
-            self.adv_layer = nn.Linear(128, output_dim)
+            self.adv_hidden_layer = nn.Linear(hidden_dim, hidden_dim_2)
+            self.adv_layer = nn.Linear(hidden_dim_2, output_dim)
         elif noisy:
-            self.adv_hidden_layer = NoisyLinear(128, 128)
-            self.adv_layer = NoisyLinear(128, output_dim)
+            self.adv_hidden_layer = NoisyLinear(hidden_dim, hidden_dim_2)
+            self.adv_layer = NoisyLinear(hidden_dim_2, output_dim)
 
         # val layer
         if not noisy:
-            self.val_hidden_layer = nn.Linear(128, 128)
-            self.val_layer = nn.Linear(128, 1)
+            self.val_hidden_layer = nn.Linear(hidden_dim, hidden_dim_2)
+            self.val_layer = nn.Linear(hidden_dim_2, 1)
         elif noisy:
-            self.val_hidden_layer = NoisyLinear(128, 128)
-            self.val_layer = NoisyLinear(128, 1)
+            self.val_hidden_layer = NoisyLinear(hidden_dim, hidden_dim_2)
+            self.val_layer = NoisyLinear(hidden_dim_2, 1)
 
     def forward(self, x):
         feature = self.feature(x)
@@ -181,8 +181,12 @@ class NoisyLinear(nn.Module):
         self.register_buffer("bias_epsilon", torch.Tensor(out_features))
 
         """Make new noise."""
-        self.epsilon_in = self.scale_noise(self.in_features)
-        self.epsilon_out = self.scale_noise(self.out_features)
+        self.epsilon_in = self.scale_noise(self.in_features) 
+        self.epsilon_out = self.scale_noise(self.out_features) 
+        self.weight_epsilon.copy_(self.epsilon_out.ger(self.epsilon_in))
+        self.bias_epsilon.copy_(self.epsilon_out)
+
+
         self.reset_parameters()
         self.reset_noise()
 
@@ -200,8 +204,10 @@ class NoisyLinear(nn.Module):
         )
 
     def reset_noise(self):
-        self.epsilon_in *= 0.5
-        self.epsilon_out *= 0.5
+        """Make new noise."""
+        self.epsilon_in = self.scale_noise(self.in_features)
+        self.epsilon_out = self.scale_noise(self.out_features)
+
         # outer product
         self.weight_epsilon.copy_(self.epsilon_out.ger(self.epsilon_in))
         self.bias_epsilon.copy_(self.epsilon_out)

@@ -21,14 +21,14 @@ from common.logger import *
 
 
 class DQNAgent:
-    def __init__(self, env, params, double=False, dueling=False, noisy=False, mod=False, target=False):
+    def __init__(self, env, params, hidden_dim, hidden_dim_2, double=False, dueling=False, noisy=False, mod=False, target=False):
         self.env = env
         self.state_dim = env.observation_space.shape
         self.action_dim = env.action_space.n
 
         self.episodes = params['episode']
         self.env_name = params['run_name']
-        self.model_name = 'dqn'
+        self.model_name = '_dqn'
 
         self.replay_size = params['replay_size']
         self.replay_warmup = params['replay_warmup']
@@ -47,7 +47,7 @@ class DQNAgent:
         self.starting_learning = False
         self.learn_step_count = 0
         self.is_test = False
-
+        self.start_making_noise = False
         '''
         DQN extension 
         '''
@@ -71,6 +71,8 @@ class DQNAgent:
         if self.target:
             self.model_name += '_target'
 
+        self.model_name += '_hid_' + str(hidden_dim) + '_' + str(hidden_dim_2)
+
         self.target_update_freq = params['target_update_freq']
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -81,11 +83,16 @@ class DQNAgent:
             self.dqn_target = cnn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
         else:
             if not self.dueling:
-                self.dqn = nn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
-                self.dqn_target = nn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
+                self.dqn = nn_DQN(self.state_dim, self.action_dim, noisy=self.noisy, 
+                hidden_dim=hidden_dim, hidden_dim_2=hidden_dim_2).to(self.device)
+                self.dqn_target = nn_DQN(self.state_dim, self.action_dim, noisy=self.noisy, 
+                hidden_dim=hidden_dim, hidden_dim_2=hidden_dim_2).to(self.device)
             elif self.dueling:
-                self.dqn = nn_Dueling(self.state_dim, self.action_dim, self.noisy).to(self.device)
-                self.dqn_target = nn_Dueling(self.state_dim, self.action_dim, self.noisy).to(self.device)
+                self.dqn = nn_Dueling(self.state_dim, self.action_dim, noisy=self.noisy, 
+                hidden_dim=hidden_dim, hidden_dim_2=hidden_dim_2).to(self.device)
+                self.dqn_target = nn_Dueling(self.state_dim, self.action_dim, noisy=self.noisy, 
+                hidden_dim=hidden_dim, hidden_dim_2=hidden_dim_2).to(self.device)
+
         self.dqn_target.load_state_dict(self.dqn.state_dict())
         self.dqn_target.eval() # for BN and Dropout
 
@@ -95,13 +102,22 @@ class DQNAgent:
 
     def select_action(self, state) -> torch.Tensor:
         sample = random.random()
-        if not self.noisy:
-            if self.starting_learning:
+        if self.starting_learning:
+            if not self.noisy and not self.mod:
                 self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
                     math.exp(-1. * self.decay_step / self.epsilon_decay)
-                self.decay_step += 1
-        elif self.noisy:
-            self.eps = 0
+            elif self.noisy and not self.mod:
+                self.eps = 0
+            elif self.noisy and self.mod:
+                if not self.start_making_noise:
+                    self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
+                        math.exp(-1. * self.decay_step / self.epsilon_decay)
+                    if(self.decay_step / self.epsilon_decay >=1.8):
+                        self.start_making_noise = True
+                elif self.start_making_noise:
+                    self.eps = 0    
+
+            self.decay_step += 1
             
         self.step_count += 1   
         if sample > self.eps:
@@ -132,8 +148,13 @@ class DQNAgent:
         self.optimizer.step()
 
         if self.noisy:
-            self.dqn.reset_noise()
-            self.dqn_target.reset_noise()
+            if not self.mod:
+                self.dqn.reset_noise()
+                self.dqn_target.reset_noise()
+            elif self.mod:
+                if self.start_making_noise:
+                    self.dqn.reset_noise()
+                    self.dqn_target.reset_noise()
 
         return loss.item()
 
@@ -183,7 +204,6 @@ class DQNAgent:
         rewards = 0
         cur_episode = 1
         plt.ion()
-        rewardbuffer = RewardBuffer(5)
         if loading:
             loading = True
             print("")
@@ -207,7 +227,7 @@ class DQNAgent:
                 action = self.select_action(state).item()
 
                 next_state, reward, done, _ = self.env.step(action)
-                # self.env.render()
+                self.env.render()
 
                 if not self.is_test:
                     self.replay_memory.store(state, action, reward, next_state, done)
@@ -229,7 +249,7 @@ class DQNAgent:
                     rewards = 0    
                     mean = np.mean(episodes_reward[max(0, len(episodes_reward)-100):(len(episodes_reward)+1)])
                     mean_reward.append(mean)
-                    # plot_anim(episodes_reward, mean_reward, losses, eps)     
+                    #plot_anim(episodes_reward, mean_reward, losses, eps)     
                     break
 
                 # its about to train
