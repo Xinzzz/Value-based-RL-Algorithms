@@ -79,8 +79,8 @@ class DQNAgent:
 
         if(len(self.env.observation_space.shape) >= 3):
             # atari
-            self.dqn = cnn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
-            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim, self.noisy).to(self.device)
+            self.dqn = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
+            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
         else:
             if not self.dueling:
                 self.dqn = nn_DQN(self.state_dim, self.action_dim, noisy=self.noisy, 
@@ -112,7 +112,7 @@ class DQNAgent:
                 if not self.start_making_noise:
                     self.eps = self.epsilon_final + (self.epsilon_start - self.epsilon_final) * \
                         math.exp(-1. * self.decay_step / self.epsilon_decay)
-                    if(self.decay_step / self.epsilon_decay >=1.8):
+                    if(self.decay_step / self.epsilon_decay >=1.8): #1.8
                         self.start_making_noise = True
                 elif self.start_making_noise:
                     self.eps = 0    

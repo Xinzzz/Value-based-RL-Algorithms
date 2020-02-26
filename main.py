@@ -21,15 +21,15 @@ def ready_env(env_id):
     seed_torch(seed)
     env.seed(seed)
 
-ready_env('cartpole')
-# agent_1 = DQNAgent(env, params, 64,64)
+ready_env('monte')
+agent_1 = DQNAgent(env, params, 64,64)
 # agent_2 = DQNAgent(env, params, 64,128)
 # agent_3 = DQNAgent(env, params, 128,128)
 # agent_4 = DQNAgent(env, params, 128,256)
 # agent_5 = DQNAgent(env, params, 256,256)
 # agent_6 = DQNAgent(env, params, 256,512)
 
-agent_7 = DQNAgent(env, params, 64,64, noisy=True)
+# agent_7 = DQNAgent(env, params, 64,64, noisy=True)
 # agent_8 = DQNAgent(env, params, 64,128, noisy=True)
 # agent_9 = DQNAgent(env, params, 128,128, noisy=True)
 # agent_10 = DQNAgent(env, params, 128,256, noisy=True)
@@ -57,7 +57,7 @@ agent_7 = DQNAgent(env, params, 64,64, noisy=True)
 # agent_29 = DQNAgent(env, params, 256,256, noisy=True, dueling=True, mod=True)
 # agent_30 = DQNAgent(env, params, 256,512, noisy=True, dueling=True, mod=True)
 
-agent_31 = DQNAgent(env, params, 64,64, noisy=True, mod=True)
+# agent_31 = DQNAgent(env, params, 64,64, noisy=True, mod=True)
 # agent_32 = DQNAgent(env, params, 64,128, noisy=True, mod=True)
 # agent_33 = DQNAgent(env, params, 128,128, noisy=True, mod=True)
 # agent_34 = DQNAgent(env, params, 128,256, noisy=True, mod=True)
@@ -68,7 +68,7 @@ agent_31 = DQNAgent(env, params, 64,64, noisy=True, mod=True)
 
 training = True
 if training:
-    # agent_1.train()
+    agent_1.train()
     # agent_2.train()
     # agent_3.train()
     # agent_4.train()
@@ -114,10 +114,10 @@ loading = False
 if loading:
     data_to_plot = []
     
-    data_to_plot.append((load_data(agent_11.env_name + agent_11.model_name),'darkgrey', 'DQN Noisy'))
-    data_to_plot.append((load_data(agent_27.env_name + agent_24.model_name),'orange', 'Duling Noisy'))
-    data_to_plot.append((load_data(agent_11.env_name + agent_30.model_name),'red','Duling DE'))
-    data_to_plot.append((load_data(agent_33.env_name + agent_36.model_name),'green', 'DQN DN'))
+    # data_to_plot.append((load_data(agent_11.env_name + agent_11.model_name),'darkgrey', 'DQN Noisy'))
+    # data_to_plot.append((load_data(agent_27.env_name + agent_24.model_name),'orange', 'Duling Noisy'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_25.model_name),'red','Duling DE'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_31.model_name),'green', 'DQN DN'))
     # data_to_plot.append((load_data(agent_22.env_name + agent_29.model_name),'gold', 'DQN DN'))
     # data_to_plot.append((load_data(agent_33.env_name + agent_30.model_name),'salmon', 'DQN DN'))
     plot(data_to_plot)

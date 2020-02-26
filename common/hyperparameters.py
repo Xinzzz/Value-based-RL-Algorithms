@@ -19,6 +19,22 @@ HYPERPARAMS = {
         'episode': 200,
         'seed': 666
     },
+    'monte': {
+        'env_name': "MontezumaRevengeNoFrameskip-v4",
+        'stop_reward': 18.0,
+        'run_name': 'monte',
+        'replay_size': 50000,
+        'replay_warmup': 4000,
+        'target_update_freq': 1000,
+        'epsilon_decay': 50000,
+        'epsilon_start': 1.0,
+        'epsilon_final': 0.02,
+        'learning_rate': 0.0001,
+        'gamma': 0.99,
+        'batch_size': 64,
+        'episode': 200,
+        'seed': 666
+    },
     'lunarlander': {
         'env_name': "LunarLander-v2",
         'stop_reward': 200.0,
@@ -65,7 +81,7 @@ HYPERPARAMS = {
         'learning_rate': 0.001,
         'gamma': 0.99,
         'batch_size': 32,
-        'episode': 200,
+        'episode': 300,
         'seed': 777
     },
 
