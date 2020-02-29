@@ -6,38 +6,40 @@ plt.rcParams['font.sans-serif']=['SimHei'] #用来正常显示中文标签
 plt.rcParams['axes.unicode_minus']=False #用来正常显示负号
 
 def plot(data):
-    plt.figure(figsize=(14,4))
+    plt.figure(figsize=(4,3))
 
     for i, data in enumerate(data):
-        plt.subplot(131)
-        plt.title('score')
-        plt.plot(data[0][3], label=data[2], color=data[1])
-        plt.xlabel('Episode')
-        plt.ylabel('score')
-        plt.legend(loc='best', facecolor='none', edgecolor='none')
+        # plt.subplot(131)
+        # plt.title('score')
+        # plt.plot(data[0][3], label=data[2], color=data[1])
+        # plt.xlabel('Episode')
+        # plt.ylabel('score')
+        # plt.legend(loc='best', facecolor='none', edgecolor='none')
 
-        plt.subplot(132)
-        plt.title('平均奖赏值')
+        # plt.subplot(132)
+        # plt.title('平均奖赏值')
         mean_reward, std = get_mean_std(data[0][1], data[0][3])
-        plt.plot(mean_reward, label=data[2], color=data[1])
-
+        if i == 0:
+            plt.plot(mean_reward, label=data[2], color=data[1])
+        else:
+            plt.plot(mean_reward, label=data[2], color=data[1],linestyle='--')
         
-       # plt.fill_between(range(len(mean_reward)), mean_reward - std, mean_reward + std, alpha=0.5, edgecolor='none', facecolor=data[1])
-        plt.xlabel('Episode')
+        # plt.fill_between(range(len(mean_reward)), mean_reward - std, mean_reward + std, alpha=0.5, edgecolor='none', facecolor=data[1])
+        plt.xlabel('训练回合数')
         plt.ylabel('平均奖赏值')
         plt.legend(loc='best', facecolor='none', edgecolor='none')
 
-        plt.subplot(133)
-        plt.title('loss')
-        plt.plot(data[0][4], label=data[2], color=data[1])
-        plt.xlabel('timesteps')
-        plt.ylabel('loss')
-        plt.legend(loc='best', facecolor='none', edgecolor='none')
+        # plt.subplot(133)
+        # plt.title('loss')
+        # plt.plot(data[0][4], label=data[2], color=data[1])
+        # plt.xlabel('timesteps')
+        # plt.ylabel('loss')
+        # plt.legend(loc='best', facecolor='none', edgecolor='none')
 
 
 
     plt.tight_layout()
-    plt.savefig("save/log/pic.png", format='png', bbox_inches='tight', facecolor='none', edgecolor='none')
+    plt.savefig("save/log/pic.svg", format='svg', bbox_inches='tight', facecolor='none', edgecolor='none')
     plt.show()
 
 def plot_anim(score, mean_score, loss, eps):

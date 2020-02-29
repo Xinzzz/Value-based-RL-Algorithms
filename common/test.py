@@ -91,7 +91,9 @@ def get_screen():
     screen = env.render(mode='rgb_array').transpose((2, 0, 1))
     # Cart is in the lower half, so strip off the top and bottom of the screen
     _, screen_height, screen_width = screen.shape
+    print(screen.shape)
     screen = screen[:, int(screen_height*0.4):int(screen_height * 0.8)]
+    print(screen.shape)
     view_width = int(screen_width * 0.6)
     cart_location = get_cart_location(screen_width)
     if cart_location < view_width // 2:
@@ -101,12 +103,15 @@ def get_screen():
     else:
         slice_range = slice(cart_location - view_width // 2,
                             cart_location + view_width // 2)
+    print(screen.shape)
     # Strip off the edges, so that we have a square image centered on a cart
     screen = screen[:, :, slice_range]
+    print(screen.shape)
     # Convert to float, rescale, convert to torch tensor
     # (this doesn't require a copy)
     screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
     screen = torch.from_numpy(screen)
+    print(screen.shape)
     # Resize, and add a batch dimension (BCHW)
     return resize(screen).unsqueeze(0).to(device)
 
@@ -131,4 +136,4 @@ n_actions = env.action_space.n
 
 policy_net = DQN(screen_height, screen_width, n_actions).to(device)
 
-print(policy_net)
+# print(policy_net)

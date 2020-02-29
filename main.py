@@ -21,7 +21,7 @@ def ready_env(env_id):
     seed_torch(seed)
     env.seed(seed)
 
-ready_env('cartpole')
+ready_env('lunarlander')
 agent_1 = DQNAgent(env, params, 64,64)
 agent_2 = DQNAgent(env, params, 64,128)
 agent_3 = DQNAgent(env, params, 128,128)
@@ -114,11 +114,11 @@ loading = True
 if loading:
     data_to_plot = []
     
-    # data_to_plot.append((load_data(agent_11.env_name + agent_11.model_name),'darkgrey', 'DQN Noisy'))
-    # data_to_plot.append((load_data(agent_27.env_name + agent_24.model_name),'orange', 'Duling Noisy'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_25.model_name),'red','1'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_28.model_name),'green', '2'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_19.model_name),'salmon', '3'))
-    # data_to_plot.append((load_data(agent_22.env_name + agent_29.model_name),'gold', 'DQN DN'))
+    # data_to_plot.append((load_data(agent_11.env_name + agent_25.model_name),'black', 'DQN Noisy'))
+    # data_to_plot.append((load_data(agent_27.env_name + agent_26.model_name),'orange', 'Duling Noisy'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_29.model_name),'tomato',r'$\lambda$ = 0.8'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_26.model_name),'green', r'$\lambda$ = 0.5'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_25.model_name),'darkgrey', r'$\lambda$ = 0.3'))
+    # data_to_plot.append((load_data(agent_22.env_name + agent_27.model_name),'gold', 'DQN DN'))
     # data_to_plot.append((load_data(agent_33.env_name + agent_30.model_name),'salmon', 'DQN DN'))
     plot(data_to_plot)
