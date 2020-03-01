@@ -114,11 +114,11 @@ loading = True
 if loading:
     data_to_plot = []
     
-    # data_to_plot.append((load_data(agent_11.env_name + agent_25.model_name),'black', 'DQN Noisy'))
-    # data_to_plot.append((load_data(agent_27.env_name + agent_26.model_name),'orange', 'Duling Noisy'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_29.model_name),'tomato',r'$\lambda$ = 0.8'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_26.model_name),'green', r'$\lambda$ = 0.5'))
-    data_to_plot.append((load_data(agent_25.env_name + agent_25.model_name),'darkgrey', r'$\lambda$ = 0.3'))
-    # data_to_plot.append((load_data(agent_22.env_name + agent_27.model_name),'gold', 'DQN DN'))
-    # data_to_plot.append((load_data(agent_33.env_name + agent_30.model_name),'salmon', 'DQN DN'))
+    # data_to_plot.append((load_data(agent_11.env_name + agent_7.model_name),'black', 'DQN Noisy'))
+    # data_to_plot.append((load_data(agent_27.env_name + agent_8.model_name),'orange', 'Duling Noisy'))
+    data_to_plot.append((load_data(agent_25.env_name + agent_29.model_name),'orangered','Dueling-DN')) #29
+    data_to_plot.append((load_data(agent_25.env_name + agent_33.model_name),'salmon', 'DQN-DN')) #31 33
+    data_to_plot.append((load_data(agent_25.env_name + agent_20.model_name),'gold', 'Dueling Noisy')) # 20
+    data_to_plot.append((load_data(agent_22.env_name + agent_9.model_name),'darkgrey', 'Noisy DQN')) #9
+    # data_to_plot.append((load_data(agent_33.env_name + agent_28.model_name),'salmon', 'DQN DN'))
     plot(data_to_plot)

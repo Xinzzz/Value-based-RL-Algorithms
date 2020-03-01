@@ -1,0 +1,8 @@
+fig3 acrobot
+27,33,23,12
+
+fig3 lunarlander
+29,33,20,9
+
+fig3 cartpole 
+27,31,24,7
