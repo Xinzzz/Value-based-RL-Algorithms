@@ -18,10 +18,24 @@ from common.network import *
 from common.plot import *
 from common.wrappers import *
 from common.logger import *
+from common.RND import RND
+
 
 
 class DQNAgent:
-    def __init__(self, env, params, hidden_dim, hidden_dim_2, double=False, dueling=False, noisy=False, mod=False, target=False):
+    def __init__(
+                self, 
+                env, 
+                params, 
+                hidden_dim, 
+                hidden_dim_2, 
+                double=False, 
+                dueling=False, 
+                noisy=False, 
+                mod=False, 
+                RND_use=False,
+                PER=False,
+    ):
         self.env = env
         self.state_dim = env.observation_space.shape
         self.action_dim = env.action_space.n
@@ -33,7 +47,7 @@ class DQNAgent:
         self.replay_size = params['replay_size']
         self.replay_warmup = params['replay_warmup']
         self.batch_size = params['batch_size']
-        self.replay_memory = ReplayBuffer(self.replay_size)
+        
 
         self.gamma = params['gamma']
 
@@ -67,11 +81,22 @@ class DQNAgent:
         if self.mod:
             self.model_name += '_mod'
 
-        self.target = target
-        if self.target:
-            self.model_name += '_target'
+        self.RND = RND_use
+        if self.RND:
+            self.model_name += '_RND'
+            # RND extra network
+            self.rnd = RND(self.state_dim, 64, hidden_dim, hidden_dim_2)    
 
-        self.model_name += '_hid_' + str(hidden_dim) + '_' + str(hidden_dim_2)
+        self.PER = PER
+        if self.PER:
+            self.model_name += '_PER'
+            self.beta = 0.6
+            self.prior_eps = 1e-6
+            self.replay_memory = PrioritizedReplayBuffer(self.replay_size)
+        elif not self.PER:
+            self.replay_memory = ReplayBuffer(self.replay_size)
+
+        # self.model_name += '_hid_' + str(hidden_dim) + '_' + str(hidden_dim_2)
 
         self.target_update_freq = params['target_update_freq']
 
@@ -79,8 +104,8 @@ class DQNAgent:
 
         if(len(self.env.observation_space.shape) >= 3):
             # atari
-            self.dqn = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
-            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim).to(self.device)
+            self.dqn = cnn_DQN(self.state_dim, self.action_dim, hidden_dim, hidden_dim_2).to(self.device)
+            self.dqn_target = cnn_DQN(self.state_dim, self.action_dim, hidden_dim, hidden_dim_2).to(self.device)
         else:
             if not self.dueling:
                 self.dqn = nn_DQN(self.state_dim, self.action_dim, noisy=self.noisy, 
@@ -140,8 +165,17 @@ class DQNAgent:
             # print_green("update target network...")
         self.learn_step_count += 1
         # return a dict
-        experiences = self.replay_memory.sample(self.batch_size)
-        loss = self._compute_loss(experiences)
+        if self.PER:
+            experiences = self.replay_memory.sample(self.batch_size, self.beta)
+            weights = torch.FloatTensor(
+            experiences["weights"].reshape(-1, 1)).to(self.device)
+            indices = experiences["indices"]
+            elementwise_loss = self._compute_loss(experiences)
+            loss = torch.mean(elementwise_loss * weights)
+        elif not self.PER:
+            # PER: importance sampling before average
+            experiences = self.replay_memory.sample(self.batch_size)
+            loss = self._compute_loss(experiences)
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -156,6 +190,13 @@ class DQNAgent:
                     self.dqn.reset_noise()
                     self.dqn_target.reset_noise()
 
+        if self.PER:
+            # PER: update priorities
+            loss_for_prior = elementwise_loss.detach().cpu().numpy()
+            new_priorities = loss_for_prior + self.prior_eps
+
+            self.replay_memory.update_priorities(indices, new_priorities)
+
         return loss.item()
 
     def _compute_loss(self, experience_samples) -> torch.Tensor:
@@ -166,6 +207,11 @@ class DQNAgent:
         action = torch.LongTensor(experience_samples["action"].reshape(-1, 1)).to(device)
         reward = torch.FloatTensor(experience_samples["reward"].reshape(-1, 1)).to(device)
         done = torch.FloatTensor(experience_samples["done"].reshape(-1, 1)).to(device)
+        
+        # RND
+        if self.RND:
+            Ri = self.rnd.get_int_reward(state)
+            self.rnd.update(Ri)
 
         if len(self.state_dim) >= 3:
             state /= 255.0
@@ -181,7 +227,12 @@ class DQNAgent:
 
         target = (reward + next_qval * self.gamma * mask).to(device)
 
-        loss = self.loss_func(cur_qval, target)
+        if self.PER:
+            # calculate element-wise dqn loss
+            elementwise_loss = F.smooth_l1_loss(cur_qval, target, reduction="none")   
+            loss = elementwise_loss 
+        elif not self.PER:    
+            loss = self.loss_func(cur_qval, target)
 
         return loss
 
@@ -194,14 +245,18 @@ class DQNAgent:
     def train(self):
         start_time = time.time()
         loading = False
-        saving = True
+        saving = False
         self.is_test = False
         state = self.env.reset()
         episodes_reward = []
+        decrease_beta = 1
         mean_reward = []
         losses = []
         eps = []
         rewards = 0
+        if self.RND:
+            episodes_reward_i = []
+            rewards_i = 0
         cur_episode = 1
         plt.ion()
         if loading:
@@ -228,28 +283,92 @@ class DQNAgent:
 
                 next_state, reward, done, _ = self.env.step(action)
                 self.env.render()
-
+                rewards += reward
                 if not self.is_test:
+                    if self.RND:
+                        reward_i = self.rnd.get_int_reward(torch.Tensor(state).unsqueeze(0).to(self.device)).detach().clamp(-0.01, 0.01).item()
+                        rewards_i += reward_i
+                        # decrease_beta = self.eps
+                        reward = reward + reward_i
+                
                     self.replay_memory.store(state, action, reward, next_state, done)
                     
                 state = next_state
-                rewards += reward
+
+                if self.PER:
+                    # PER: increase beta
+                    fraction = min(episode / self.episodes, 1.0)
+                    self.beta = self.beta + fraction * (1.0 - self.beta)
                 if saving:
-                    if self.step_count % 10000 == 0:
+                    if self.step_count % 6000 == 0:
                         print("")
                         print_yellow("saving checkpoint..")
-                        save_ckpt(self.dqn, self.env_name + self.model_name, episode, 
-                        self.optimizer, episodes_reward, mean_reward, 
-                        losses, eps, self.eps, self.step_count, self.replay_memory)
+                        if self.RND:
+                            save_ckpt_i(
+                                self.dqn, 
+                                self.env_name + self.model_name, 
+                                episode, 
+                                self.optimizer, 
+                                episodes_reward, 
+                                mean_reward, 
+                                episodes_reward_i,
+                                losses, 
+                                eps, 
+                                self.eps, 
+                                self.step_count, 
+                                self.replay_memory,
+                                )
+                        else:
+                            save_ckpt(
+                                self.dqn, 
+                                self.env_name + self.model_name, 
+                                episode, 
+                                self.optimizer, 
+                                episodes_reward, 
+                                mean_reward, 
+                                losses, 
+                                eps, 
+                                self.eps, 
+                                self.step_count, 
+                                self.replay_memory,
+                                )
+                if self.step_count % 100000 == 0:
+                    if self.RND:
+                        save_data_i(
+                            self.env_name + self.model_name + '_' + str(self.step_count), 
+                            self.model_name, 
+                            episode, 
+                            self.step_count, 
+                            episodes_reward, 
+                            episodes_reward_i,
+                            losses, 
+                            eps)
+                    elif not self.RND:
+                        save_data(
+                            self.env_name + self.model_name + '_' + str(self.step_count), 
+                            self.model_name, 
+                            episode, 
+                            self.step_count, 
+                            episodes_reward, 
+                            losses, 
+                            eps) 
+
+
                 # if episode ends
                 if done:
                     state = self.env.reset()
                     episodes_reward.append(rewards)
+                    
                     log_show(self.step_count, episode, self.episodes, rewards, self.loss, self.eps, len(self.replay_memory)) 
-                    rewards = 0    
+                    rewards = 0   
                     mean = np.mean(episodes_reward[max(0, len(episodes_reward)-100):(len(episodes_reward)+1)])
                     mean_reward.append(mean)
-                    #plot_anim(episodes_reward, mean_reward, losses, eps)     
+                    if self.RND:
+                        episodes_reward_i.append(rewards_i)
+                        rewards_i = 0 
+                        plot_anim_i(episodes_reward, mean_reward, episodes_reward_i, losses)
+                    else:
+                        plot_anim(episodes_reward, mean_reward, losses, eps)     
                     break
 
                 # its about to train
@@ -268,7 +387,26 @@ class DQNAgent:
         plt.ioff()
         end_time = time.time()
         print_cyan(f'Training cost {round(((end_time - start_time) / 60), 2)} mins')
-        save_data(self.env_name + self.model_name, self.model_name, episode, self.step_count, episodes_reward, losses, eps)
+        if self.RND:
+            save_data_i(
+                self.env_name + self.model_name, 
+                self.model_name, 
+                episode, 
+                self.step_count, 
+                episodes_reward, 
+                episodes_reward_i,
+                losses, 
+                eps)
+        elif not self.RND:
+            save_data(
+                self.env_name + self.model_name, 
+                self.model_name, 
+                episode, 
+                self.step_count, 
+                episodes_reward, 
+                losses, 
+                eps)
+        # save_data(self.env_name + self.model_name, self.model_name, episode, self.step_count, episodes_reward, losses, eps)
         save_model(self.dqn, self.env_name + self.model_name)
 
     def test(self) -> None:
@@ -289,12 +427,3 @@ class DQNAgent:
         
         print("score: ", score)
         self.env.close()
-
-
-                
-
-
-
-
-
-

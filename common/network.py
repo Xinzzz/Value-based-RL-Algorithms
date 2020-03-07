@@ -77,14 +77,14 @@ class nn_Dueling(nn.Module):
         self.val_hidden_layer.reset_noise()
 
 class cnn_DQN(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, hid1_dim, hid2_dim): #32 64
         super(cnn_DQN, self).__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(input_dim[0], 32, kernel_size=8, stride=4),
+            nn.Conv2d(input_dim[0], hid1_dim, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.Conv2d(hid1_dim, hid2_dim, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.Conv2d(hid2_dim, hid2_dim, kernel_size=3, stride=1),
             nn.ReLU()
         )
  
